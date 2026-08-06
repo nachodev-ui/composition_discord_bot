@@ -40,7 +40,7 @@ Las URLs se registran por nombre de rol en:
 src/discord/buildPresentation.ts
 ```
 
-La imagen de `Bear Paws (x2)` utiliza **PNG** porque la captura contiene texto pequeño, iconos y bordes definidos. Se optimizó a **500×326**, paleta indexada y aproximadamente **26 KB**, conservando legibilidad con compatibilidad máxima en Discord.
+La imagen de `Bear Paws (x2)` utiliza **PNG** porque la captura contiene texto pequeño, iconos y bordes definidos. Se optimizó a **500×326**, paleta indexada y **26.387 bytes**, conservando legibilidad con compatibilidad máxima en Discord.
 
 ```ts
 const BUILD_IMAGE_URL_BY_ROLE = {
