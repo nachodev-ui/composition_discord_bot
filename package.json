@@ -15,7 +15,8 @@
     "start": "node dist/index.js",
     "lint": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/**/*.test.ts",
-    "check": "pnpm lint && pnpm test && pnpm build",
+    "images:validate": "node scripts/validateBuildImages.mjs assets/builds/05-bear-paws-x2.png",
+    "check": "pnpm lint && pnpm test && pnpm build && pnpm images:validate",
     "commands:register": "tsx src/discord/registerCommands.ts",
     "config:validate": "tsx src/config/validateBuildConfig.ts"
   },
