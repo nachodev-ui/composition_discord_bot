@@ -51,9 +51,9 @@ const bearPawsBuild: AlbionBuild = {
 };
 
 const bearPawsImageUrl =
-  'https://cdn.jsdelivr.net/gh/nachodev-ui/composition_discord_bot@ec482cdad5308271b5edf09428cc5b00360662fa/assets/builds/05-bear-paws-x2.webp';
+  'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.png';
 
-test('la build número 5 usa una URL CDN directa en el embed', () => {
+test('la build número 5 usa una URL PNG directa en el embed', () => {
   const presentation = createBuildPresentation(bearPawsBuild);
 
   assert.equal(presentation.imageUrl, bearPawsImageUrl);
