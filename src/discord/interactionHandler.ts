@@ -136,14 +136,16 @@ export class InteractionHandler {
         return;
       }
 
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const presentation = createBuildPresentation(build);
 
-      await interaction.editReply({
+      // El archivo y el embed se envían juntos en la respuesta inicial del botón.
+      // Discord solo resuelve attachment://nombre cuando el mismo payload contiene
+      // files: [attachment]. Evitamos deferReply/editReply para no separar la carga.
+      await interaction.reply({
         content: `Build obligatoria para **#${build.number} ${build.discordRole.name}**.`,
         embeds: presentation.embeds,
-        // Discord sube físicamente estos archivos y el embed usa attachment://nombre.
         files: presentation.files,
+        flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
       });
 
@@ -152,6 +154,7 @@ export class InteractionHandler {
           userId: interaction.user.id,
           buildNumber: build.number,
           attachedImages: presentation.files.length,
+          attachedImageName: presentation.attachedImageName,
         },
         'Build privada mostrada desde el botón Ver Build.',
       );
@@ -185,11 +188,11 @@ export class InteractionHandler {
       return;
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const presentation = createBuildPresentation(build);
-    await interaction.editReply({
+    await interaction.reply({
       embeds: presentation.embeds,
       files: presentation.files,
+      flags: MessageFlags.Ephemeral,
       allowedMentions: { parse: [] },
     });
   }

@@ -51,6 +51,7 @@ test('la build número 5 adjunta y referencia su imagen física', () => {
   const presentation = createBuildPresentation(bearPawsBuild);
 
   assert.equal(presentation.files.length, 1);
+  assert.equal(presentation.attachedImageName, '05-bear-paws-x2.webp');
   assert.equal(
     presentation.embeds[0]?.toJSON().image?.url,
     'attachment://05-bear-paws-x2.webp',
