@@ -35,3 +35,20 @@ jobs:
 
       - name: Check
         run: pnpm run check
+
+      - name: Verify remote build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_url='https://cdn.jsdelivr.net/gh/nachodev-ui/composition_discord_bot@ec482cdad5308271b5edf09428cc5b00360662fa/assets/builds/05-bear-paws-x2.webp'
+          content_type="$(curl --fail --silent --show-error --location \
+            --output /tmp/05-bear-paws-x2.webp \
+            --write-out '%{content_type}' \
+            "$image_url")"
+
+          test -s /tmp/05-bear-paws-x2.webp
+          case "$content_type" in
+            image/*) ;;
+            *) echo "Content-Type inesperado: $content_type" >&2; exit 1 ;;
+          esac
+          file --brief --mime-type /tmp/05-bear-paws-x2.webp | grep -E '^image/'

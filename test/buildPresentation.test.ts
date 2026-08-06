@@ -51,13 +51,26 @@ const bearPawsBuild: AlbionBuild = {
 };
 
 const bearPawsImageUrl =
-  'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.webp';
+  'https://cdn.jsdelivr.net/gh/nachodev-ui/composition_discord_bot@ec482cdad5308271b5edf09428cc5b00360662fa/assets/builds/05-bear-paws-x2.webp';
 
-test('la build número 5 usa una URL web directa en el embed', () => {
+test('la build número 5 usa una URL CDN directa en el embed', () => {
   const presentation = createBuildPresentation(bearPawsBuild);
 
   assert.equal(presentation.imageUrl, bearPawsImageUrl);
   assert.equal(presentation.embeds[0]?.toJSON().image?.url, bearPawsImageUrl);
+});
+
+test('preserva emojis y acentos UTF-8 en el embed', () => {
+  const embed = createBuildPresentation(bearPawsBuild).embeds[0]?.toJSON();
+
+  assert.equal(embed?.fields?.[0]?.name, '⚔️ Arma');
+  assert.equal(embed?.fields?.[1]?.name, '🪖 Cabeza');
+  assert.equal(embed?.fields?.[4]?.name, '🧥 Capa');
+  assert.equal(embed?.fields?.[5]?.name, '🧪 Consumibles');
+  assert.equal(embed?.footer?.text, 'Categoría: DPS cuerpo a cuerpo · Configuración v1');
+
+  const serializedEmbed = JSON.stringify(embed);
+  assert.doesNotMatch(serializedEmbed, /Ã|â€|âš|ï¸|ðŸ|�/u);
 });
 
 test('lanza un error claro cuando el rol no tiene URL asignada', () => {

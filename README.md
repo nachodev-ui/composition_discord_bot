@@ -40,18 +40,24 @@ Las URLs se registran por nombre de rol en:
 src/discord/buildPresentation.ts
 ```
 
-Ejemplo actual:
+La imagen incluida se sirve desde jsDelivr con una revisión inmutable del repositorio de GitHub. Esto evita depender de `raw.githubusercontent.com` y evita que una caché antigua siga ocultando la imagen.
 
 ```ts
 const BUILD_IMAGE_URL_BY_ROLE = {
   'Bear Paws (x2)':
-    'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.webp',
+    'https://cdn.jsdelivr.net/gh/nachodev-ui/composition_discord_bot@REVISION/assets/builds/05-bear-paws-x2.webp',
 };
 ```
 
 La clave debe coincidir exactamente con `build.discordRole.name`. Si un rol no tiene URL configurada, el bot devuelve un error explícito indicando qué entrada falta.
 
 Para nuevas builds, sube la imagen a GitHub, Discord CDN o Imgur y utiliza una URL pública directa hacia el archivo PNG, JPG o WebP.
+
+### Codificación UTF-8 en Windows
+
+Los archivos TypeScript contienen emojis y acentos. No los reescribas con `Get-Content` o `Set-Content` de Windows PowerShell 5.1 sin especificar la codificación, porque puede transformar `Categoría` en `CategorÃ­a` y romper los emojis.
+
+Para modificar el código, utiliza VS Code. Las pruebas verifican que el embed conserve sus caracteres UTF-8 correctamente.
 
 ## Eventos de Discord
 
@@ -185,4 +191,5 @@ Incluye pruebas para:
 - persistencia y exclusividad de puestos;
 - renderizado de la mención en el panel;
 - URL remota de la imagen en el embed;
+- preservación de emojis y acentos UTF-8;
 - error cuando un rol no tiene URL de imagen configurada.
