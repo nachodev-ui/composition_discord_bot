@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { basename, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { AttachmentBuilder, EmbedBuilder } from 'discord.js';
 import type { AlbionBuild } from '../domain/build.js';
 
@@ -8,8 +8,10 @@ const EMBED_FIELD_LIMIT = 1_024;
 const PROJECT_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 /**
- * Mapa de imágenes confirmadas físicamente dentro del repositorio.
- * Al agregar una build nueva, basta con incorporar el archivo y registrar su número aquí.
+ * Imágenes físicas verificadas dentro del repositorio.
+ *
+ * La build #5 utiliza el archivo local incluido en assets. Discord recibe el
+ * archivo mediante AttachmentBuilder y el embed lo referencia con attachment://.
  */
 const BUILD_IMAGE_BY_NUMBER: Readonly<Record<number, string>> = Object.freeze({
   5: 'assets/builds/05-bear-paws-x2.webp',
@@ -36,20 +38,32 @@ function formatArmorPiece(piece: {
     .join('\n');
 }
 
-function resolveBuildImagePath(build: AlbionBuild): string | null {
-  const configuredPath = BUILD_IMAGE_BY_NUMBER[build.number] ?? build.imagePath;
+interface ResolvedBuildImage {
+  absolutePath: string;
+  fileName: string;
+  required: boolean;
+}
+
+function resolveBuildImage(build: AlbionBuild): ResolvedBuildImage | null {
+  const verifiedPath = BUILD_IMAGE_BY_NUMBER[build.number];
+  const configuredPath = verifiedPath ?? build.imagePath;
+
   if (!configuredPath) {
     return null;
   }
 
-  // No depende de process.cwd(): funciona aunque el bot se inicie desde otra carpeta,
-  // como sucede con servicios de Windows, Docker o gestores de procesos.
-  return resolve(PROJECT_ROOT, configuredPath);
+  const absolutePath = resolve(PROJECT_ROOT, configuredPath);
+  return {
+    absolutePath,
+    fileName: basename(absolutePath),
+    required: verifiedPath !== undefined,
+  };
 }
 
 export interface BuildPresentation {
   embeds: EmbedBuilder[];
   files: AttachmentBuilder[];
+  attachedImageName: string | null;
 }
 
 export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
@@ -99,17 +113,30 @@ export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
   }
 
   const files: AttachmentBuilder[] = [];
-  const absoluteImagePath = resolveBuildImagePath(build);
-  if (absoluteImagePath && existsSync(absoluteImagePath)) {
-    const fileName = basename(absoluteImagePath);
-    const imageAttachment = new AttachmentBuilder(absoluteImagePath, {
-      name: fileName,
+  let attachedImageName: string | null = null;
+  const resolvedImage = resolveBuildImage(build);
+
+  if (resolvedImage) {
+    if (!existsSync(resolvedImage.absolutePath)) {
+      if (resolvedImage.required) {
+        throw new Error(
+          `No se encontró la imagen obligatoria de la build #${build.number}: ` +
+            resolvedImage.absolutePath,
+        );
+      }
+
+      return { embeds: [embed], files, attachedImageName };
+    }
+
+    const attachment = new AttachmentBuilder(resolvedImage.absolutePath, {
+      name: resolvedImage.fileName,
       description: `Build obligatoria #${build.number} ${build.discordRole.name}`,
     });
 
-    files.push(imageAttachment);
-    embed.setImage(`attachment://${fileName}`);
+    files.push(attachment);
+    attachedImageName = resolvedImage.fileName;
+    embed.setImage(`attachment://${resolvedImage.fileName}`);
   }
 
-  return { embeds: [embed], files };
+  return { embeds: [embed], files, attachedImageName };
 }
