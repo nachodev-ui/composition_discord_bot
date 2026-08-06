@@ -6,13 +6,13 @@ const EMBED_FIELD_LIMIT = 1_024;
 /**
  * URL pública de la imagen obligatoria para cada rol de composición.
  *
- * Las imágenes se sirven desde jsDelivr usando una revisión inmutable del
- * repositorio de GitHub. Esto evita depender del filesystem del bot y también
- * evita problemas de caché o de proxy con raw.githubusercontent.com.
+ * Las imágenes se sirven como PNG optimizados desde una URL pública directa.
+ * Cada archivo se valida por estructura y decodificación antes de integrarse,
+ * para impedir que una imagen truncada llegue al embed de Discord.
  */
 export const BUILD_IMAGE_URL_BY_ROLE: Readonly<Record<string, string>> = Object.freeze({
   'Bear Paws (x2)':
-    'https://cdn.jsdelivr.net/gh/nachodev-ui/composition_discord_bot@ec482cdad5308271b5edf09428cc5b00360662fa/assets/builds/05-bear-paws-x2.webp',
+    'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.png',
 });
 
 export class BuildImageUrlNotConfiguredError extends Error {
