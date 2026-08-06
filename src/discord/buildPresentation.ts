@@ -1,21 +1,28 @@
-import { existsSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { AttachmentBuilder, EmbedBuilder } from 'discord.js';
+import { EmbedBuilder } from 'discord.js';
 import type { AlbionBuild } from '../domain/build.js';
 
 const EMBED_FIELD_LIMIT = 1_024;
-const PROJECT_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 /**
- * Imágenes físicas verificadas dentro del repositorio.
+ * URL pública de la imagen obligatoria para cada rol de composición.
  *
- * La build #5 utiliza el archivo local incluido en assets. Discord recibe el
- * archivo mediante AttachmentBuilder y el embed lo referencia con attachment://.
+ * Discord descarga estas imágenes directamente desde la web, por lo que no se
+ * usan AttachmentBuilder, rutas locales ni referencias attachment://.
  */
-const BUILD_IMAGE_BY_NUMBER: Readonly<Record<number, string>> = Object.freeze({
-  5: 'assets/builds/05-bear-paws-x2.webp',
+export const BUILD_IMAGE_URL_BY_ROLE: Readonly<Record<string, string>> = Object.freeze({
+  'Bear Paws (x2)':
+    'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.webp',
 });
+
+export class BuildImageUrlNotConfiguredError extends Error {
+  public constructor(roleName: string) {
+    super(
+      `No hay una URL de imagen configurada para el rol "${roleName}". ` +
+        'Agrega una entrada en BUILD_IMAGE_URL_BY_ROLE.',
+    );
+    this.name = 'BuildImageUrlNotConfiguredError';
+  }
+}
 
 function truncate(value: string, limit = EMBED_FIELD_LIMIT): string {
   if (value.length <= limit) {
@@ -38,32 +45,17 @@ function formatArmorPiece(piece: {
     .join('\n');
 }
 
-interface ResolvedBuildImage {
-  absolutePath: string;
-  fileName: string;
-  required: boolean;
-}
-
-function resolveBuildImage(build: AlbionBuild): ResolvedBuildImage | null {
-  const verifiedPath = BUILD_IMAGE_BY_NUMBER[build.number];
-  const configuredPath = verifiedPath ?? build.imagePath;
-
-  if (!configuredPath) {
-    return null;
+function getBuildImageUrl(build: AlbionBuild): string {
+  const imageUrl = BUILD_IMAGE_URL_BY_ROLE[build.discordRole.name];
+  if (!imageUrl) {
+    throw new BuildImageUrlNotConfiguredError(build.discordRole.name);
   }
-
-  const absolutePath = resolve(PROJECT_ROOT, configuredPath);
-  return {
-    absolutePath,
-    fileName: basename(absolutePath),
-    required: verifiedPath !== undefined,
-  };
+  return imageUrl;
 }
 
 export interface BuildPresentation {
   embeds: EmbedBuilder[];
-  files: AttachmentBuilder[];
-  attachedImageName: string | null;
+  imageUrl: string;
 }
 
 export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
@@ -76,6 +68,7 @@ export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
     `**Pasiva:** ${build.equipment.weapon.passive}`,
   ].filter((value): value is string => value !== null);
 
+  const imageUrl = getBuildImageUrl(build);
   const embed = new EmbedBuilder()
     .setColor(0xf2c94c)
     .setTitle(`#${build.number} · ${build.discordRole.name}`)
@@ -97,6 +90,7 @@ export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
         inline: true,
       },
     )
+    .setImage(imageUrl)
     .setFooter({ text: `Categoría: ${build.category} · Configuración v1` })
     .setTimestamp();
 
@@ -112,31 +106,5 @@ export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
     embed.setURL(build.sourceUrl);
   }
 
-  const files: AttachmentBuilder[] = [];
-  let attachedImageName: string | null = null;
-  const resolvedImage = resolveBuildImage(build);
-
-  if (resolvedImage) {
-    if (!existsSync(resolvedImage.absolutePath)) {
-      if (resolvedImage.required) {
-        throw new Error(
-          `No se encontró la imagen obligatoria de la build #${build.number}: ` +
-            resolvedImage.absolutePath,
-        );
-      }
-
-      return { embeds: [embed], files, attachedImageName };
-    }
-
-    const attachment = new AttachmentBuilder(resolvedImage.absolutePath, {
-      name: resolvedImage.fileName,
-      description: `Build obligatoria #${build.number} ${build.discordRole.name}`,
-    });
-
-    files.push(attachment);
-    attachedImageName = resolvedImage.fileName;
-    embed.setImage(`attachment://${resolvedImage.fileName}`);
-  }
-
-  return { embeds: [embed], files, attachedImageName };
+  return { embeds: [embed], imageUrl };
 }

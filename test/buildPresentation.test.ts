@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AlbionBuild } from '../src/domain/build.js';
-import { createBuildPresentation } from '../src/discord/buildPresentation.js';
+import {
+  BuildImageUrlNotConfiguredError,
+  createBuildPresentation,
+} from '../src/discord/buildPresentation.js';
 
 const bearPawsBuild: AlbionBuild = {
   number: 5,
@@ -47,13 +50,32 @@ const bearPawsBuild: AlbionBuild = {
   imagePath: null,
 };
 
-test('la build número 5 adjunta y referencia su imagen física', () => {
+const bearPawsImageUrl =
+  'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.webp';
+
+test('la build número 5 usa una URL web directa en el embed', () => {
   const presentation = createBuildPresentation(bearPawsBuild);
 
-  assert.equal(presentation.files.length, 1);
-  assert.equal(presentation.attachedImageName, '05-bear-paws-x2.webp');
-  assert.equal(
-    presentation.embeds[0]?.toJSON().image?.url,
-    'attachment://05-bear-paws-x2.webp',
+  assert.equal(presentation.imageUrl, bearPawsImageUrl);
+  assert.equal(presentation.embeds[0]?.toJSON().image?.url, bearPawsImageUrl);
+});
+
+test('lanza un error claro cuando el rol no tiene URL asignada', () => {
+  const buildWithoutImageUrl: AlbionBuild = {
+    ...bearPawsBuild,
+    number: 6,
+    discordRole: {
+      id: '',
+      name: 'Carving Sword',
+    },
+  };
+
+  assert.throws(
+    () => createBuildPresentation(buildWithoutImageUrl),
+    (error: unknown) => {
+      assert.ok(error instanceof BuildImageUrlNotConfiguredError);
+      assert.match(error.message, /Carving Sword/);
+      return true;
+    },
   );
 });
