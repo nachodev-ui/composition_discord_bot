@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+coverage/
+.DS_Store
+data/signup-state.json
+data/*.tmp
