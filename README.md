@@ -30,15 +30,28 @@ Ejemplo del panel actualizado:
 - Si el estado indica un ocupante que ya no está en el servidor o perdió el rol, el puesto se libera al intentar ocuparlo.
 - Cuando un miembro abandona el servidor, su puesto se elimina del panel.
 
-## Imagen incluida
+## Imágenes remotas de builds
 
-Se añadió la imagen original entregada para:
+El embed usa URLs web directas mediante `embed.setImage(url)`. No se utilizan `AttachmentBuilder`, rutas locales ni referencias `attachment://`.
+
+Las URLs se registran por nombre de rol en:
 
 ```text
-assets/builds/05-bear-paws-x2.webp
+src/discord/buildPresentation.ts
 ```
 
-La entrada `#5` de `config/builds.json` ya apunta a esa ruta. Las demás builds continúan mostrando su información textual hasta que se añada el archivo indicado en su `imagePath`.
+Ejemplo actual:
+
+```ts
+const BUILD_IMAGE_URL_BY_ROLE = {
+  'Bear Paws (x2)':
+    'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.webp',
+};
+```
+
+La clave debe coincidir exactamente con `build.discordRole.name`. Si un rol no tiene URL configurada, el bot devuelve un error explícito indicando qué entrada falta.
+
+Para nuevas builds, sube la imagen a GitHub, Discord CDN o Imgur y utiliza una URL pública directa hacia el archivo PNG, JPG o WebP.
 
 ## Eventos de Discord
 
@@ -66,7 +79,7 @@ La palomita no necesita un listener `messageReactionAdd`: el bot es quien añade
 - comandos slash administrativos o de respaldo;
 - botones cuyo `customId` tiene el formato `build:view:v1:<numero>:<usuario>`.
 
-El botón solo funciona para el jugador al que fue entregado y mientras siga asignado a esa build. La respuesta utiliza `MessageFlags.Ephemeral`.
+El botón solo funciona para el jugador al que fue entregado y mientras siga asignado a esa build. La respuesta utiliza `MessageFlags.Ephemeral` y muestra la imagen remota con `EmbedBuilder#setImage`.
 
 ### `guildMemberRemove`
 
@@ -109,7 +122,6 @@ Permisos recomendados:
 - View Channels
 - Send Messages
 - Embed Links
-- Attach Files
 - Read Message History
 - Add Reactions
 - Manage Roles
@@ -171,4 +183,6 @@ Incluye pruebas para:
 - catálogo de builds;
 - identificadores de botones;
 - persistencia y exclusividad de puestos;
-- renderizado de la mención en el panel.
+- renderizado de la mención en el panel;
+- URL remota de la imagen en el embed;
+- error cuando un rol no tiene URL de imagen configurada.
