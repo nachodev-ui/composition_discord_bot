@@ -1,9 +1,19 @@
 import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { basename, resolve } from 'node:path';
 import { AttachmentBuilder, EmbedBuilder } from 'discord.js';
 import type { AlbionBuild } from '../domain/build.js';
 
 const EMBED_FIELD_LIMIT = 1_024;
+const PROJECT_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)));
+
+/**
+ * Mapa de imágenes confirmadas físicamente dentro del repositorio.
+ * Al agregar una build nueva, basta con incorporar el archivo y registrar su número aquí.
+ */
+const BUILD_IMAGE_BY_NUMBER: Readonly<Record<number, string>> = Object.freeze({
+  5: 'assets/builds/05-bear-paws-x2.webp',
+});
 
 function truncate(value: string, limit = EMBED_FIELD_LIMIT): string {
   if (value.length <= limit) {
@@ -24,6 +34,17 @@ function formatArmorPiece(piece: {
   ]
     .filter((value): value is string => value !== null)
     .join('\n');
+}
+
+function resolveBuildImagePath(build: AlbionBuild): string | null {
+  const configuredPath = BUILD_IMAGE_BY_NUMBER[build.number] ?? build.imagePath;
+  if (!configuredPath) {
+    return null;
+  }
+
+  // No depende de process.cwd(): funciona aunque el bot se inicie desde otra carpeta,
+  // como sucede con servicios de Windows, Docker o gestores de procesos.
+  return resolve(PROJECT_ROOT, configuredPath);
 }
 
 export interface BuildPresentation {
@@ -56,7 +77,9 @@ export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
       { name: '🧥 Capa', value: truncate(build.equipment.cape), inline: true },
       {
         name: '🧪 Consumibles',
-        value: truncate(`**Poción:** ${build.consumables.potion}\n**Comida:** ${build.consumables.food}`),
+        value: truncate(
+          `**Poción:** ${build.consumables.potion}\n**Comida:** ${build.consumables.food}`,
+        ),
         inline: true,
       },
     )
@@ -76,13 +99,16 @@ export function createBuildPresentation(build: AlbionBuild): BuildPresentation {
   }
 
   const files: AttachmentBuilder[] = [];
-  if (build.imagePath) {
-    const absoluteImagePath = resolve(process.cwd(), build.imagePath);
-    if (existsSync(absoluteImagePath)) {
-      const fileName = basename(absoluteImagePath);
-      files.push(new AttachmentBuilder(absoluteImagePath, { name: fileName }));
-      embed.setImage(`attachment://${fileName}`);
-    }
+  const absoluteImagePath = resolveBuildImagePath(build);
+  if (absoluteImagePath && existsSync(absoluteImagePath)) {
+    const fileName = basename(absoluteImagePath);
+    const imageAttachment = new AttachmentBuilder(absoluteImagePath, {
+      name: fileName,
+      description: `Build obligatoria #${build.number} ${build.discordRole.name}`,
+    });
+
+    files.push(imageAttachment);
+    embed.setImage(`attachment://${fileName}`);
   }
 
   return { embeds: [embed], files };

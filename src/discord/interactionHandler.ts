@@ -138,11 +138,23 @@ export class InteractionHandler {
 
       await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const presentation = createBuildPresentation(build);
+
       await interaction.editReply({
         content: `Build obligatoria para **#${build.number} ${build.discordRole.name}**.`,
-        ...presentation,
+        embeds: presentation.embeds,
+        // Discord sube físicamente estos archivos y el embed usa attachment://nombre.
+        files: presentation.files,
         allowedMentions: { parse: [] },
       });
+
+      this.#logger.info(
+        {
+          userId: interaction.user.id,
+          buildNumber: build.number,
+          attachedImages: presentation.files.length,
+        },
+        'Build privada mostrada desde el botón Ver Build.',
+      );
     } catch (error) {
       this.#logger.error(
         { err: error, customId: interaction.customId, userId: interaction.user.id },
@@ -174,8 +186,10 @@ export class InteractionHandler {
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const presentation = createBuildPresentation(build);
     await interaction.editReply({
-      ...createBuildPresentation(build),
+      embeds: presentation.embeds,
+      files: presentation.files,
       allowedMentions: { parse: [] },
     });
   }
