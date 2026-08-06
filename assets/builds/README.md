@@ -12,7 +12,7 @@ La imagen inicial incluida es:
 
 - `05-bear-paws-x2.png`: PNG optimizado de 500×326 para el rol `Bear Paws (x2)`.
 
-Se eligió PNG porque las builds contienen texto pequeño, iconos y bordes que pierden claridad con JPEG. El archivo pesa aproximadamente 26 KB, por lo que no supone una carga relevante para el embed.
+Se eligió PNG porque las builds contienen texto pequeño, iconos y bordes que pierden claridad con JPEG. El archivo pesa 26.387 bytes, por lo que no supone una carga relevante para el embed.
 
 Antes de integrarse, cada PNG debe superar `pnpm run images:validate`. La validación comprueba firma, CRC de todos los chunks, descompresión `IDAT` completa, dimensiones y tamaño máximo. Así se detectan archivos truncados aunque el encabezado o el MIME parezcan válidos.
 
