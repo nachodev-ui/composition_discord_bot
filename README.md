@@ -40,18 +40,20 @@ Las URLs se registran por nombre de rol en:
 src/discord/buildPresentation.ts
 ```
 
-La imagen incluida se sirve desde jsDelivr con una revisión inmutable del repositorio de GitHub. Esto evita depender de `raw.githubusercontent.com` y evita que una caché antigua siga ocultando la imagen.
+La imagen de `Bear Paws (x2)` utiliza **PNG** porque la captura contiene texto pequeño, iconos y bordes definidos. Se optimizó a **500×326**, paleta indexada y aproximadamente **26 KB**, conservando legibilidad con compatibilidad máxima en Discord.
 
 ```ts
 const BUILD_IMAGE_URL_BY_ROLE = {
   'Bear Paws (x2)':
-    'https://cdn.jsdelivr.net/gh/nachodev-ui/composition_discord_bot@REVISION/assets/builds/05-bear-paws-x2.webp',
+    'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.png',
 };
 ```
 
 La clave debe coincidir exactamente con `build.discordRole.name`. Si un rol no tiene URL configurada, el bot devuelve un error explícito indicando qué entrada falta.
 
-Para nuevas builds, sube la imagen a GitHub, Discord CDN o Imgur y utiliza una URL pública directa hacia el archivo PNG, JPG o WebP.
+`pnpm run check` valida el PNG local por firma, CRC de cada chunk, descompresión completa de `IDAT`, dimensiones y límite de tamaño. El workflow también descarga y decodifica la URL pública después de cada actualización de `main`, por lo que una imagen truncada no puede pasar la validación únicamente porque su encabezado o MIME parezcan correctos.
+
+Para nuevas builds, utiliza PNG optimizado cuando la imagen contenga texto, iconos o interfaces. JPEG queda reservado para fotografías sin transparencias ni texto pequeño.
 
 ### Codificación UTF-8 en Windows
 
@@ -192,4 +194,5 @@ Incluye pruebas para:
 - renderizado de la mención en el panel;
 - URL remota de la imagen en el embed;
 - preservación de emojis y acentos UTF-8;
+- decodificación estructural completa del PNG;
 - error cuando un rol no tiene URL de imagen configurada.
