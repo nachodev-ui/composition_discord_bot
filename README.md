@@ -1,129 +1,301 @@
-# Composition Discord Bot — Albion Online
+# Albion Composition Platform
 
-Bot de Discord en **TypeScript + discord.js 14** para administrar una composición mediante números, asignar roles y entregar builds obligatorias sin que el usuario tenga que escribir comandos adicionales.
+Plataforma en **TypeScript + discord.js + Fastify + PostgreSQL** para administrar builds y composiciones de Albion Online desde una interfaz web y sincronizarlas con un bot de Discord.
 
-## Flujo implementado
+El objetivo de esta versión es que crear o modificar una build **no requiera editar TypeScript, mapas hardcodeados ni subir imágenes al repositorio**.
 
-1. El bot publica un embed de signup con todos los puestos numerados.
-2. El jugador escribe únicamente el número, por ejemplo `5`.
-3. El bot valida que el puesto esté libre y que pueda administrar al miembro.
-4. Retira el rol de composición anterior y asigna el nuevo.
-5. Guarda la selección en `data/signup-state.json`.
-6. Edita el mismo embed y añade `<@usuario>` al lado del puesto.
-7. Reacciona al mensaje numérico con ✅.
-8. Responde con un botón **Ver Build**.
-9. Al pulsarlo, `interactionCreate` valida que el botón pertenezca al usuario y responde de forma efímera con equipamiento, habilidades e imagen.
-
-Ejemplo del panel actualizado:
+## Arquitectura
 
 ```text
-5 — Bear Paws (x2): @Jugador
-6 — Carving Sword: —
+┌──────────────────────────────┐
+│       Panel /admin           │
+│ CRUD builds/composiciones    │
+│ generar PNG / publicar       │
+└──────────────┬───────────────┘
+               │ Bearer ADMIN_TOKEN
+               ▼
+┌──────────────────────────────┐
+│        Fastify API           │
+│ /api/admin/*                 │
+│ /api/v1/builds               │
+│ /media/builds/:id.png        │
+└──────────┬──────────┬────────┘
+           │          │
+           │          └──────────────┐
+           ▼                         ▼
+┌─────────────────────┐   ┌─────────────────────┐
+│ PostgreSQL / Neon   │   │ Albion item render  │
+│ fuente de verdad    │   │ sprites de objetos  │
+└──────────┬──────────┘   └──────────┬──────────┘
+           │                         │
+           │                  Sharp genera PNG
+           │                         │
+           └──────────────┬──────────┘
+                          ▼
+                 ┌──────────────────┐
+                 │   Discord Bot    │
+                 │ consume la API   │
+                 │ roles / signup   │
+                 │ Ver Build        │
+                 │ publicaciones    │
+                 └──────────────────┘
 ```
 
-## Reglas del signup
+### Fuente única de verdad
 
-- Cada número admite un solo usuario.
-- Cada usuario mantiene un solo puesto activo.
-- Cambiar de número libera automáticamente el puesto anterior.
-- Dos selecciones simultáneas se serializan para impedir que dos usuarios ocupen el mismo número.
-- Si el estado indica un ocupante que ya no está en el servidor o perdió el rol, el puesto se libera al intentar ocuparlo.
-- Cuando un miembro abandona el servidor, su puesto se elimina del panel.
+PostgreSQL almacena:
 
-## Imágenes remotas de builds
+- builds;
+- equipamiento, habilidades, consumibles e Item IDs;
+- estados `draft`, `ready`, `published`, `archived`;
+- imágenes PNG generadas;
+- versiones históricas de cada build;
+- composiciones y sus puestos;
+- publicaciones de Discord;
+- asignaciones del signup;
+- ID del mensaje persistente del panel de signup;
+- auditoría administrativa.
 
-El embed usa URLs web directas mediante `embed.setImage(url)`. No se utilizan `AttachmentBuilder`, rutas locales ni referencias `attachment://`.
+El runtime ya no depende de `data/signup-state.json` ni de imágenes guardadas en `assets/builds`.
 
-Las URLs se registran por nombre de rol en:
+`config/builds.json` se conserva temporalmente **solo como fuente de migración** de las 20 builds históricas. El bot nuevo no lo usa como catálogo en producción.
+
+## Panel administrativo
+
+Con la aplicación iniciada:
 
 ```text
-src/discord/buildPresentation.ts
+http://localhost:3000/admin
 ```
 
-La imagen de `Bear Paws (x2)` utiliza **PNG** porque la captura contiene texto pequeño, iconos y bordes definidos. Se optimizó a **500×326**, paleta indexada y **26.387 bytes**, conservando legibilidad con compatibilidad máxima en Discord.
+El panel permite:
 
-```ts
-const BUILD_IMAGE_URL_BY_ROLE = {
-  'Bear Paws (x2)':
-    'https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.png',
-};
-```
+- crear, editar y archivar builds;
+- definir número, categoría y estado;
+- asociar nombre e ID del rol de Discord;
+- configurar arma, offhand, cabeza, pecho, pies, capa, comida y poción;
+- registrar Q, W, E y pasivas;
+- guardar Item IDs de Albion opcionales;
+- generar automáticamente el PNG de la build;
+- publicar una build en un canal de Discord;
+- crear y editar composiciones;
+- asociar builds a puestos de una composición;
+- publicar una composición completa en Discord.
 
-La clave debe coincidir exactamente con `build.discordRole.name`. Si un rol no tiene URL configurada, el bot devuelve un error explícito indicando qué entrada falta.
+El panel no inserta los nombres o descripciones guardados mediante `innerHTML`; usa nodos de texto para evitar HTML persistente inyectado desde los datos.
 
-`pnpm run check` valida el PNG local por firma, CRC de cada chunk, descompresión completa de `IDAT`, dimensiones y límite de tamaño. El workflow también descarga y decodifica la URL pública después de cada actualización de `main`, por lo que una imagen truncada no puede pasar la validación únicamente porque su encabezado o MIME parezcan correctos.
+## Generación automática de imágenes
 
-Para nuevas builds, utiliza PNG optimizado cuando la imagen contenga texto, iconos o interfaces. JPEG queda reservado para fotografías sin transparencias ni texto pequeño.
+`BuildImageGenerator` obtiene los sprites desde el renderer de Albion y genera un **PNG indexado y optimizado** con Sharp.
 
-### Codificación UTF-8 en Windows
+Para cada slot se sigue esta regla:
 
-Los archivos TypeScript contienen emojis y acentos. No los reescribas con `Get-Content` o `Set-Content` de Windows PowerShell 5.1 sin especificar la codificación, porque puede transformar `Categoría` en `CategorÃ­a` y romper los emojis.
+1. si existe un Item ID, se utiliza como identificador exacto;
+2. si no existe, se intenta usar el nombre del objeto registrado en la build;
+3. si el slot está vacío, se dibuja un placeholder.
 
-Para modificar el código, utiliza VS Code. Las pruebas verifican que el embed conserve sus caracteres UTF-8 correctamente.
+Esto permite migrar las builds actuales sin tener que completar todos los Item IDs inmediatamente. Para tier o encantamiento específicos conviene guardar el identificador interno exacto.
 
-## Eventos de Discord
-
-### `messageCreate`
-
-`src/discord/messageHandler.ts`:
-
-- filtra servidor y canal;
-- interpreta el número;
-- llama a `SignupService`;
-- actualiza el panel;
-- ejecuta `message.react('✅')`;
-- responde con el botón **Ver Build**.
-
-No se elimina el mensaje numérico correcto, porque debe conservar la reacción visible.
-
-### Reacción de confirmación
-
-La palomita no necesita un listener `messageReactionAdd`: el bot es quien añade la reacción directamente después de completar la operación. Para ello necesita **Add Reactions** y **Read Message History**.
-
-### `interactionCreate`
-
-`src/discord/interactionHandler.ts` distingue:
-
-- comandos slash administrativos o de respaldo;
-- botones cuyo `customId` tiene el formato `build:view:v1:<numero>:<usuario>`.
-
-El botón solo funciona para el jugador al que fue entregado y mientras siga asignado a esa build. La respuesta utiliza `MessageFlags.Ephemeral` y muestra la imagen remota con `EmbedBuilder#setImage`.
-
-### `guildMemberRemove`
-
-Libera el puesto persistido y vuelve a renderizar el panel cuando un jugador abandona el servidor.
-
-## Estructura principal
+Las imágenes finales no se commitean al repositorio. Se guardan en `build_images` y se publican mediante:
 
 ```text
-src/
-├── config/
-│   └── env.ts
-├── discord/
-│   ├── buildButton.ts
-│   ├── buildPresentation.ts
-│   ├── interactionHandler.ts
-│   ├── messageHandler.ts
-│   ├── panelPresentation.ts
-│   └── signupPanelService.ts
-├── domain/
-│   ├── build.ts
-│   ├── errors.ts
-│   └── signupState.ts
-├── services/
-│   ├── roleAssignmentService.ts
-│   ├── signupService.ts
-│   └── signupStateStore.ts
-└── index.ts
+GET /media/builds/:id.png
 ```
 
-## Requisitos
+Cada regeneración incrementa `imageVersion` y la URL pública incorpora `?v=N` para evitar imágenes antiguas en caché de Discord.
 
-- Node.js 24 o superior.
-- pnpm 11.
-- `Message Content Intent` habilitado.
-- `Server Members Intent` habilitado.
-- Rol del bot por encima de todos los roles de composición.
+## API
+
+### Pública / consumida por el bot
+
+```text
+GET /api/v1/builds
+GET /api/v1/builds/:number
+GET /media/builds/:id.png
+GET /healthz
+GET /readyz
+```
+
+Solo se exponen al catálogo del bot las builds habilitadas con estado `ready` o `published`.
+
+### Administrativa
+
+Requiere:
+
+```http
+Authorization: Bearer <ADMIN_TOKEN>
+```
+
+Rutas principales:
+
+```text
+GET    /api/admin/builds
+POST   /api/admin/builds
+PUT    /api/admin/builds/:id
+DELETE /api/admin/builds/:id
+POST   /api/admin/builds/:id/generate-image
+POST   /api/admin/builds/:id/publish
+
+GET    /api/admin/compositions
+POST   /api/admin/compositions
+PUT    /api/admin/compositions/:id
+DELETE /api/admin/compositions/:id
+POST   /api/admin/compositions/:id/publish
+```
+
+`ADMIN_TOKEN` es la primera capa de autenticación administrativa. No debe reutilizar el token del bot ni guardarse en Git.
+
+## Sincronización con Discord
+
+El bot consume su propio endpoint `/api/v1/builds` mediante `BuildApiClient`.
+
+Flujo:
+
+```text
+PostgreSQL
+   ↓
+Fastify API
+   ↓
+BuildApiClient
+   ↓
+BuildCatalog en memoria
+   ↓
+Signup / roles / Ver Build
+```
+
+El catálogo se refresca periódicamente según `BUILD_SYNC_SECONDS`. Además, una modificación hecha desde el panel provoca una actualización inmediata del catálogo y del mensaje de signup cuando Discord ya está conectado.
+
+No existe `BUILD_IMAGE_URL_BY_ROLE`: la URL pertenece a la build persistida en PostgreSQL.
+
+## Composiciones
+
+Una composición es independiente de una build. Puede reutilizar builds existentes en distintos puestos:
+
+```text
+Brawl 20
+├── 1 · Oathkeepers
+├── 2 · Stillgaze Staff
+├── 3 · Battle Bracers
+├── 4 · Hallowfall
+└── 5 · Bear Paws
+```
+
+`composition_slots` conserva posición, build, etiqueta opcional y cantidad requerida. El panel puede publicar la composición al canal almacenado en `discord_channel_id`.
+
+## PostgreSQL / Neon
+
+La migración inicial está versionada en:
+
+```text
+db/migrations/001_build_platform.sql
+```
+
+Tablas principales:
+
+```text
+builds
+build_images
+build_versions
+compositions
+composition_slots
+build_publications
+signup_assignments
+bot_runtime_state
+admin_audit_log
+```
+
+Después de aplicar la migración, las builds históricas pueden importarse una sola vez con:
+
+```powershell
+pnpm run db:import-legacy
+```
+
+El importador es idempotente por número: las builds que ya existan se omiten.
+
+## Variables de entorno
+
+Copia `.env.example` a `.env`:
+
+```dotenv
+DISCORD_TOKEN=
+DISCORD_CLIENT_ID=
+DISCORD_GUILD_ID=
+ROLE_SELECTION_CHANNEL_ID=
+
+DATABASE_URL=
+
+ADMIN_TOKEN=
+PUBLIC_BASE_URL=http://localhost:3000
+INTERNAL_API_URL=http://127.0.0.1:3000
+ALBION_RENDER_BASE_URL=https://render.albiononline.com/v1/item
+LEGACY_BUILD_CONFIG_PATH=config/builds.json
+
+ROLE_REPLACEMENT_ENABLED=true
+AUTO_CREATE_MISSING_ROLES=false
+AUTO_PUBLISH_PANEL=true
+SELECTION_COOLDOWN_SECONDS=3
+BUILD_SYNC_SECONDS=15
+
+PORT=3000
+LOG_LEVEL=info
+```
+
+### `PUBLIC_BASE_URL`
+
+En producción debe ser una URL HTTPS accesible por Internet, porque Discord necesita descargar las imágenes del embed. Por ejemplo:
+
+```text
+https://bot.example.com
+```
+
+`localhost` solo sirve durante desarrollo local.
+
+### `INTERNAL_API_URL`
+
+Cuando API y bot corren en el mismo proceso puede mantenerse:
+
+```text
+http://127.0.0.1:3000
+```
+
+## Desarrollo local
+
+Requisitos:
+
+- Node.js 24+;
+- pnpm 11;
+- PostgreSQL compatible o Neon;
+- `Message Content Intent` y `Server Members Intent` habilitados para el bot.
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+corepack enable
+corepack prepare pnpm@11.17.0 --activate
+pnpm install
+pnpm run config:validate
+pnpm run check
+pnpm run commands:register
+pnpm run dev
+```
+
+El `config:validate` solo comprueba que el catálogo histórico siga siendo importable; no lo convierte en fuente de verdad del runtime.
+
+## Flujo de migración recomendado
+
+1. Aplicar `db/migrations/001_build_platform.sql` a Neon.
+2. Configurar `DATABASE_URL` y un `ADMIN_TOKEN` nuevo.
+3. Ejecutar `pnpm run db:import-legacy` una vez.
+4. Iniciar la aplicación.
+5. Abrir `/admin` y comprobar las 20 builds.
+6. Completar Item IDs exactos cuando sean necesarios.
+7. Generar PNG desde el panel.
+8. Marcar una build como `ready`.
+9. Publicarla en un canal de prueba de Discord.
+10. Una vez validado el flujo, retirar definitivamente el catálogo histórico en una migración posterior.
+
+## Discord
 
 Permisos recomendados:
 
@@ -135,64 +307,49 @@ Permisos recomendados:
 - Manage Roles
 - Use Application Commands
 
-El propietario del servidor no es administrable por bots; prueba la asignación automática con una cuenta normal.
+Comandos existentes:
 
-## Variables de entorno
+- `/panel`
+- `/sincronizar-roles`
+- `/rol numero`
+- `/build numero`
 
-```dotenv
-DISCORD_TOKEN=
-DISCORD_CLIENT_ID=
-DISCORD_GUILD_ID=
-ROLE_SELECTION_CHANNEL_ID=
+El flujo normal sigue siendo: el jugador escribe el número del puesto, el bot asigna el rol, actualiza el signup y entrega el botón privado **Ver Build**.
 
-BUILD_CONFIG_PATH=config/builds.json
-SIGNUP_STATE_PATH=data/signup-state.json
-ROLE_REPLACEMENT_ENABLED=true
-AUTO_CREATE_MISSING_ROLES=false
-AUTO_PUBLISH_PANEL=true
-SELECTION_COOLDOWN_SECONDS=3
-PORT=3000
-LOG_LEVEL=info
-```
-
-`data/signup-state.json` se crea automáticamente y está ignorado por Git.
-
-## Instalación en Windows
-
-```powershell
-Copy-Item .env.example .env
-corepack enable
-corepack prepare pnpm@11.17.0 --activate
-pnpm install
-pnpm run config:validate
-pnpm run commands:register
-pnpm run check
-pnpm run dev
-```
-
-`pnpm-workspace.yaml` autoriza únicamente el script de instalación de `esbuild`, evitando el error `ERR_PNPM_IGNORED_BUILDS` de pnpm 11.
-
-## Comandos
-
-- `/panel`: publica o actualiza el panel persistente.
-- `/sincronizar-roles`: crea y valida roles faltantes.
-- `/rol numero`: alternativa al mensaje numérico.
-- `/build numero`: consulta de respaldo; el botón es el flujo normal del jugador.
-
-## Pruebas
+## Pruebas y CI
 
 ```powershell
 pnpm run check
 ```
 
-Incluye pruebas para:
+Ejecuta:
 
+- TypeScript sin emitir;
+- pruebas unitarias;
+- build de producción.
+
+Las pruebas cubren, entre otras cosas:
+
+- catálogo histórico de migración;
 - parser de números;
-- catálogo de builds;
-- identificadores de botones;
-- persistencia y exclusividad de puestos;
-- renderizado de la mención en el panel;
-- URL remota de la imagen en el embed;
-- preservación de emojis y acentos UTF-8;
-- decodificación estructural completa del PNG;
-- error cuando un rol no tiene URL de imagen configurada.
+- custom IDs de botones;
+- exclusividad de puestos;
+- presentación del panel;
+- embeds de builds;
+- UTF-8;
+- URL/identificador del renderer de Albion.
+
+GitHub Actions ejecuta el mismo flujo en pull requests y en `develop`/`main`.
+
+## Limpieza realizada en esta arquitectura
+
+Se retiraron del runtime:
+
+- el mapa hardcodeado `rol → URL`;
+- las imágenes de build almacenadas en el repositorio;
+- el validador específico del PNG estático;
+- el health server anterior, reemplazado por Fastify;
+- el directorio de estado local `data/`;
+- el volumen local de datos del contenedor.
+
+El adaptador `SignupStateStore` de archivo se conserva por ahora únicamente para pruebas/compatibilidad histórica; producción utiliza `PostgresSignupStateStore`.
