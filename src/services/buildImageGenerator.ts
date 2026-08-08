@@ -7,8 +7,10 @@ const WIDTH = 540;
 const HEIGHT = 540;
 const ICON_SIZE = 140;
 
+type ItemSlot = keyof AlbionBuild['itemIds'];
+
 interface Cell {
-  key: keyof AlbionBuild['itemIds'] | 'empty';
+  key: ItemSlot | 'empty';
   label: string;
   x: number;
   y: number;
@@ -42,6 +44,19 @@ function emptyCell(label: string): Buffer {
   return Buffer.from(svg);
 }
 
+function itemNameForSlot(build: AlbionBuild, slot: ItemSlot): string | null {
+  switch (slot) {
+    case 'weapon': return build.equipment.weapon.name;
+    case 'offhand': return build.equipment.offhand ?? null;
+    case 'head': return build.equipment.head.name;
+    case 'chest': return build.equipment.chest.name;
+    case 'shoes': return build.equipment.shoes.name;
+    case 'cape': return build.equipment.cape;
+    case 'potion': return build.consumables.potion;
+    case 'food': return build.consumables.food;
+  }
+}
+
 export class BuildImageGenerator {
   readonly #renderBaseUrl: string;
 
@@ -49,8 +64,12 @@ export class BuildImageGenerator {
     this.#renderBaseUrl = renderBaseUrl.replace(/\/$/u, '');
   }
 
-  public itemImageUrl(itemId: string): string {
-    return `${this.#renderBaseUrl}/${encodeURIComponent(itemId)}.png?quality=1`;
+  public itemImageUrl(identifier: string): string {
+    return `${this.#renderBaseUrl}/${encodeURIComponent(identifier)}.png?quality=1&size=217&locale=en`;
+  }
+
+  public resolveItemIdentifier(build: AlbionBuild, slot: ItemSlot): string | null {
+    return build.itemIds[slot] ?? itemNameForSlot(build, slot);
   }
 
   public async generate(build: AlbionBuild): Promise<BuildImageRecord> {
@@ -65,18 +84,18 @@ export class BuildImageGenerator {
         continue;
       }
 
-      const itemId = build.itemIds[cell.key];
-      if (!itemId) {
+      const identifier = this.resolveItemIdentifier(build, cell.key);
+      if (!identifier) {
         overlays.push({ input: emptyCell(cell.label), left: cell.x, top: cell.y });
         continue;
       }
 
-      const response = await fetch(this.itemImageUrl(itemId), {
+      const response = await fetch(this.itemImageUrl(identifier), {
         headers: { 'user-agent': 'composition-discord-bot/0.3' },
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) {
-        throw new Error(`No se pudo descargar ${cell.label} (${itemId}): HTTP ${response.status}.`);
+        throw new Error(`No se pudo descargar ${cell.label} (${identifier}): HTTP ${response.status}.`);
       }
 
       const raw = Buffer.from(await response.arrayBuffer());
