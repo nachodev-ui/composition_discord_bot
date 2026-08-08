@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Logger } from '../config/logger.js';
 import type { AlbionBuild } from '../domain/build.js';
 import { buildWriteSchema } from '../domain/build.js';
-import { type CompositionWriteInput, PostgresBuildRepository } from '../db/postgresBuildRepository.js';
+import { type CompositionRecord, type CompositionWriteInput, PostgresBuildRepository } from '../db/postgresBuildRepository.js';
 import { BuildImageGenerator } from '../services/buildImageGenerator.js';
 import { renderAdminPage } from './adminPage.js';
 
@@ -20,6 +20,7 @@ export interface PublishedDiscordMessage {
 }
 
 export type BuildPublisher = (build: AlbionBuild, channelId: string | null) => Promise<PublishedDiscordMessage>;
+export type CompositionPublisher = (composition: CompositionRecord, channelId: string) => Promise<PublishedDiscordMessage>;
 
 const compositionWriteSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -34,6 +35,10 @@ const compositionWriteSchema = z.object({
     label: z.string().trim().min(1).nullable().optional(),
     requiredCount: z.number().int().positive().default(1),
   })).default([]),
+});
+
+const publishBodySchema = z.object({
+  channelId: z.union([z.string().regex(/^\d{17,20}$/), z.null()]).optional(),
 });
 
 function isAuthorized(authorization: string | undefined, adminToken: string): boolean {
@@ -57,13 +62,15 @@ export interface AppServerOptions {
 
 export interface AppServer {
   setBuildPublisher(publisher: BuildPublisher): void;
+  setCompositionPublisher(publisher: CompositionPublisher): void;
   setBuildChangeHandler(handler: () => Promise<void>): void;
   close(): Promise<void>;
 }
 
 export async function startAppServer(options: AppServerOptions): Promise<AppServer> {
   const app = Fastify({ loggerInstance: options.logger });
-  let publisher: BuildPublisher | null = null;
+  let buildPublisher: BuildPublisher | null = null;
+  let compositionPublisher: CompositionPublisher | null = null;
   let onBuildChange: (() => Promise<void>) | null = null;
 
   app.setErrorHandler((error: unknown, _request, reply) => {
@@ -150,14 +157,14 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
 
   app.post('/api/admin/builds/:id/publish', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = z.object({ channelId: z.union([z.string().regex(/^\d{17,20}$/), z.null()]).optional() }).parse(request.body ?? {});
+    const body = publishBodySchema.parse(request.body ?? {});
     const build = await options.repository.getBuildById(id);
     if (!build) return reply.code(404).send({ error: 'Build no encontrada.' });
     if (build.status === 'draft' || build.status === 'archived') return reply.code(409).send({ error: 'La build debe estar Lista o Publicada.' });
     if (!build.imageUrl) return reply.code(409).send({ error: 'Genera la imagen antes de publicar.' });
-    if (!publisher) return reply.code(503).send({ error: 'El bot de Discord todavía no está listo.' });
+    if (!buildPublisher) return reply.code(503).send({ error: 'El bot de Discord todavía no está listo.' });
 
-    const published = await publisher(build, body.channelId ?? null);
+    const published = await buildPublisher(build, body.channelId ?? null);
     await options.repository.recordPublication({ buildId: id, guildId: published.guildId, channelId: published.channelId, messageId: published.messageId, type: 'build' });
     return published;
   });
@@ -184,11 +191,27 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
     return reply.code(204).send();
   });
 
+  app.post('/api/admin/compositions/:id/publish', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = publishBodySchema.parse(request.body ?? {});
+    const composition = (await options.repository.listCompositions()).find((candidate) => candidate.id === id);
+    if (!composition) return reply.code(404).send({ error: 'Composición no encontrada.' });
+    if (composition.status === 'draft' || composition.status === 'archived') return reply.code(409).send({ error: 'La composición debe estar Lista o Publicada.' });
+    const channelId = body.channelId ?? composition.discordChannelId;
+    if (!channelId) return reply.code(409).send({ error: 'La composición no tiene canal de Discord configurado.' });
+    if (!compositionPublisher) return reply.code(503).send({ error: 'El bot de Discord todavía no está listo.' });
+
+    const published = await compositionPublisher(composition, channelId);
+    await options.repository.recordPublication({ compositionId: id, guildId: published.guildId, channelId: published.channelId, messageId: published.messageId, type: 'composition' });
+    return published;
+  });
+
   await app.listen({ host: '0.0.0.0', port: options.port });
   options.logger.info({ port: options.port }, 'API, panel administrativo y health server iniciados.');
 
   return {
-    setBuildPublisher(nextPublisher) { publisher = nextPublisher; },
+    setBuildPublisher(nextPublisher) { buildPublisher = nextPublisher; },
+    setCompositionPublisher(nextPublisher) { compositionPublisher = nextPublisher; },
     setBuildChangeHandler(handler) { onBuildChange = handler; },
     close: async () => app.close(),
   };
