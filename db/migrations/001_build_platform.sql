@@ -1,5 +1,3 @@
-BEGIN;
-
 CREATE TABLE builds (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   number integer NOT NULL UNIQUE CHECK (number > 0 AND number <= 999),
@@ -120,5 +118,3 @@ CREATE TRIGGER build_publications_set_updated_at BEFORE UPDATE ON build_publicat
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER bot_runtime_state_set_updated_at BEFORE UPDATE ON bot_runtime_state
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
-
-COMMIT;
