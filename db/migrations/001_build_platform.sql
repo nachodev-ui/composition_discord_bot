@@ -85,9 +85,16 @@ CREATE TABLE signup_assignments (
   guild_id text NOT NULL,
   user_id text NOT NULL,
   build_id uuid NOT NULL REFERENCES builds(id) ON DELETE RESTRICT,
+  role_id text NOT NULL,
   assigned_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (guild_id, user_id),
   UNIQUE (guild_id, build_id)
+);
+
+CREATE TABLE bot_runtime_state (
+  guild_id text PRIMARY KEY,
+  panel_message_id text,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE admin_audit_log (
@@ -110,6 +117,8 @@ FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER compositions_set_updated_at BEFORE UPDATE ON compositions
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER build_publications_set_updated_at BEFORE UPDATE ON build_publications
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER bot_runtime_state_set_updated_at BEFORE UPDATE ON bot_runtime_state
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;
