@@ -17,7 +17,9 @@
     "test": "tsx --test test/**/*.test.ts",
     "check": "pnpm lint && pnpm test && pnpm build",
     "commands:register": "tsx src/discord/registerCommands.ts",
+    "db:migrate": "tsx scripts/applyMigrations.ts",
     "db:import-legacy": "tsx scripts/importLegacyBuilds.ts",
+    "db:verify": "tsx scripts/verifyDatabase.ts",
     "config:validate": "tsx src/config/validateBuildConfig.ts"
   },
   "dependencies": {
