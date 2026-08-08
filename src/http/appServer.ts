@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify from 'fastify';
 import { z } from 'zod';
 import type { Logger } from '../config/logger.js';
 import type { AlbionBuild } from '../domain/build.js';
@@ -56,7 +56,6 @@ export interface AppServerOptions {
 }
 
 export interface AppServer {
-  instance: FastifyInstance;
   setBuildPublisher(publisher: BuildPublisher): void;
   setBuildChangeHandler(handler: () => Promise<void>): void;
   close(): Promise<void>;
@@ -67,10 +66,11 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
   let publisher: BuildPublisher | null = null;
   let onBuildChange: (() => Promise<void>) | null = null;
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error: unknown, _request, reply) => {
     options.logger.error({ err: error }, 'Error procesando una solicitud HTTP.');
-    const statusCode = 'issues' in error ? 400 : 500;
-    void reply.code(statusCode).send({ error: error.message });
+    const statusCode = error instanceof z.ZodError ? 400 : 500;
+    const message = error instanceof Error ? error.message : 'Error interno inesperado.';
+    void reply.code(statusCode).send({ error: message });
   });
 
   app.get('/healthz', async () => {
@@ -108,9 +108,7 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
 
   app.addHook('preHandler', async (request, reply) => {
     if (!request.url.startsWith('/api/admin/')) return;
-    if (!isAuthorized(request.headers.authorization, options.adminToken)) {
-      return reply.code(401).send({ error: 'ADMIN_TOKEN inválido o ausente.' });
-    }
+    if (!isAuthorized(request.headers.authorization, options.adminToken)) return reply.code(401).send({ error: 'ADMIN_TOKEN inválido o ausente.' });
   });
 
   app.get('/api/admin/builds', async () => options.repository.listBuilds({ includeArchived: true }));
@@ -190,7 +188,6 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
   options.logger.info({ port: options.port }, 'API, panel administrativo y health server iniciados.');
 
   return {
-    instance: app,
     setBuildPublisher(nextPublisher) { publisher = nextPublisher; },
     setBuildChangeHandler(handler) { onBuildChange = handler; },
     close: async () => app.close(),
