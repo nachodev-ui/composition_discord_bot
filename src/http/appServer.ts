@@ -3,10 +3,7 @@ import { z } from 'zod';
 import type { Logger } from '../config/logger.js';
 import type { AlbionBuild } from '../domain/build.js';
 import { buildWriteSchema } from '../domain/build.js';
-import {
-  type CompositionWriteInput,
-  PostgresBuildRepository,
-} from '../db/postgresBuildRepository.js';
+import { type CompositionWriteInput, PostgresBuildRepository } from '../db/postgresBuildRepository.js';
 import { BuildImageGenerator } from '../services/buildImageGenerator.js';
 import { renderAdminPage } from './adminPage.js';
 
@@ -22,10 +19,7 @@ export interface PublishedDiscordMessage {
   messageId: string;
 }
 
-export type BuildPublisher = (
-  build: AlbionBuild,
-  channelId: string | null,
-) => Promise<PublishedDiscordMessage>;
+export type BuildPublisher = (build: AlbionBuild, channelId: string | null) => Promise<PublishedDiscordMessage>;
 
 const compositionWriteSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -47,9 +41,7 @@ function isAuthorized(authorization: string | undefined, adminToken: string): bo
   const token = authorization.slice('Bearer '.length);
   if (token.length !== adminToken.length) return false;
   let mismatch = 0;
-  for (let index = 0; index < token.length; index += 1) {
-    mismatch |= token.charCodeAt(index) ^ adminToken.charCodeAt(index);
-  }
+  for (let index = 0; index < token.length; index += 1) mismatch |= token.charCodeAt(index) ^ adminToken.charCodeAt(index);
   return mismatch === 0;
 }
 
@@ -83,11 +75,7 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
 
   app.get('/healthz', async () => {
     const state = options.getHealthState();
-    return {
-      status: state.ready ? 'ready' : 'starting',
-      discordUser: state.discordUser,
-      uptimeSeconds: Math.floor((Date.now() - state.startedAt) / 1_000),
-    };
+    return { status: state.ready ? 'ready' : 'starting', discordUser: state.discordUser, uptimeSeconds: Math.floor((Date.now() - state.startedAt) / 1_000) };
   });
 
   app.get('/readyz', async (_request, reply) => {
@@ -96,9 +84,7 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
     return { status: 'ready', discordUser: state.discordUser };
   });
 
-  app.get('/admin', async (_request, reply) => {
-    return reply.type('text/html; charset=utf-8').send(renderAdminPage());
-  });
+  app.get('/admin', async (_request, reply) => reply.type('text/html; charset=utf-8').send(renderAdminPage()));
 
   app.get('/api/v1/builds', async () => {
     const builds = await options.repository.listBuilds({ enabledOnly: true });
@@ -109,9 +95,7 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
     const number = Number((request.params as { number: string }).number);
     if (!Number.isInteger(number)) return reply.code(400).send({ error: 'Número inválido.' });
     const build = await options.repository.getBuildByNumber(number);
-    if (!build || !build.enabled || build.status === 'draft' || build.status === 'archived') {
-      return reply.code(404).send({ error: 'Build no encontrada.' });
-    }
+    if (!build || !build.enabled || build.status === 'draft' || build.status === 'archived') return reply.code(404).send({ error: 'Build no encontrada.' });
     return build;
   });
 
@@ -119,23 +103,17 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
     const { id } = request.params as { id: string };
     const image = await options.repository.getBuildImage(id);
     if (!image) return reply.code(404).send({ error: 'Imagen no encontrada.' });
-    return reply
-      .header('content-type', image.contentType)
-      .header('cache-control', 'public, max-age=31536000, immutable')
-      .header('etag', `"${image.sha256}"`)
-      .send(image.data);
+    return reply.header('content-type', image.contentType).header('cache-control', 'public, max-age=31536000, immutable').header('etag', `"${image.sha256}"`).send(image.data);
   });
 
   app.addHook('preHandler', async (request, reply) => {
     if (!request.url.startsWith('/api/admin/')) return;
     if (!isAuthorized(request.headers.authorization, options.adminToken)) {
-      await reply.code(401).send({ error: 'ADMIN_TOKEN inválido o ausente.' });
+      return reply.code(401).send({ error: 'ADMIN_TOKEN inválido o ausente.' });
     }
   });
 
-  app.get('/api/admin/builds', async () => {
-    return options.repository.listBuilds({ includeArchived: true });
-  });
+  app.get('/api/admin/builds', async () => options.repository.listBuilds({ includeArchived: true }));
 
   app.post('/api/admin/builds', async (request, reply) => {
     const input = buildWriteSchema.parse(request.body);
@@ -155,9 +133,7 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
 
   app.delete('/api/admin/builds/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!(await options.repository.archiveBuild(id))) {
-      return reply.code(404).send({ error: 'Build no encontrada.' });
-    }
+    if (!(await options.repository.archiveBuild(id))) return reply.code(404).send({ error: 'Build no encontrada.' });
     if (onBuildChange) await onBuildChange();
     return reply.code(204).send();
   });
@@ -167,7 +143,8 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
     const build = await options.repository.getBuildById(id);
     if (!build) return reply.code(404).send({ error: 'Build no encontrada.' });
     const image = await options.imageGenerator.generate(build);
-    const publicUrl = `${options.publicBaseUrl.replace(/\/$/u, '')}/media/builds/${id}.png`;
+    const nextImageVersion = build.imageVersion + 1;
+    const publicUrl = `${options.publicBaseUrl.replace(/\/$/u, '')}/media/builds/${id}.png?v=${nextImageVersion}`;
     const updated = await options.repository.saveBuildImage(id, image, publicUrl);
     if (onBuildChange) await onBuildChange();
     return updated;
@@ -175,27 +152,15 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
 
   app.post('/api/admin/builds/:id/publish', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = z.object({
-      channelId: z.union([z.string().regex(/^\d{17,20}$/), z.null()]).optional(),
-    }).parse(request.body ?? {});
+    const body = z.object({ channelId: z.union([z.string().regex(/^\d{17,20}$/), z.null()]).optional() }).parse(request.body ?? {});
     const build = await options.repository.getBuildById(id);
     if (!build) return reply.code(404).send({ error: 'Build no encontrada.' });
-    if (build.status === 'draft' || build.status === 'archived') {
-      return reply.code(409).send({ error: 'La build debe estar Lista o Publicada.' });
-    }
-    if (!build.imageUrl) {
-      return reply.code(409).send({ error: 'Genera la imagen antes de publicar.' });
-    }
+    if (build.status === 'draft' || build.status === 'archived') return reply.code(409).send({ error: 'La build debe estar Lista o Publicada.' });
+    if (!build.imageUrl) return reply.code(409).send({ error: 'Genera la imagen antes de publicar.' });
     if (!publisher) return reply.code(503).send({ error: 'El bot de Discord todavía no está listo.' });
 
     const published = await publisher(build, body.channelId ?? null);
-    await options.repository.recordPublication({
-      buildId: id,
-      guildId: published.guildId,
-      channelId: published.channelId,
-      messageId: published.messageId,
-      type: 'build',
-    });
+    await options.repository.recordPublication({ buildId: id, guildId: published.guildId, channelId: published.channelId, messageId: published.messageId, type: 'build' });
     return published;
   });
 
@@ -217,9 +182,7 @@ export async function startAppServer(options: AppServerOptions): Promise<AppServ
 
   app.delete('/api/admin/compositions/:id', async (request, reply) => {
     const { id } = request.params as { id: string };
-    if (!(await options.repository.archiveComposition(id))) {
-      return reply.code(404).send({ error: 'Composición no encontrada.' });
-    }
+    if (!(await options.repository.archiveComposition(id))) return reply.code(404).send({ error: 'Composición no encontrada.' });
     return reply.code(204).send();
   });
 
