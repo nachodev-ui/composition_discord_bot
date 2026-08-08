@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 const optionalText = z.string().trim().min(1).nullable().optional();
 const optionalItemId = z.string().trim().min(1).max(128).nullable().optional();
+const buildStatusSchema = z.enum(['draft', 'ready', 'published', 'archived']);
 
 export const discordRoleSchema = z.object({
   id: z.union([z.literal(''), z.string().regex(/^\d{17,20}$/)]).default(''),
@@ -38,7 +39,7 @@ export const buildSchema = z.object({
   number: z.number().int().positive().max(999),
   name: z.string().trim().min(1).max(256),
   category: z.string().trim().min(1).max(100),
-  status: z.enum(['draft', 'ready', 'published', 'archived']).default('draft'),
+  status: buildStatusSchema.default('ready'),
   enabled: z.boolean().default(true),
   version: z.number().int().positive().default(1),
   discordRole: discordRoleSchema,
@@ -67,7 +68,9 @@ export const buildWriteSchema = buildSchema.omit({
   version: true,
   imageVersion: true,
   imagePath: true,
+  status: true,
 }).extend({
+  status: buildStatusSchema.default('draft'),
   imageUrl: z.url().nullable().optional(),
 });
 
