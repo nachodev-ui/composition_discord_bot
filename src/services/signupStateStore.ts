@@ -20,7 +20,23 @@ export interface ClaimSlotResult {
   previousBuildNumber: number | null;
 }
 
-export class SignupStateStore {
+export interface SignupStateStorage {
+  load(): Promise<void>;
+  snapshot(): SignupState;
+  getAssignmentByBuild(buildNumber: number): SignupAssignment | undefined;
+  getAssignmentByUser(userId: string): SignupAssignment | undefined;
+  setPanelMessageId(messageId: string | null): Promise<void>;
+  claimSlot(input: ClaimSlotInput): Promise<ClaimSlotResult>;
+  releaseBuild(buildNumber: number): Promise<SignupAssignment | null>;
+  releaseUser(userId: string): Promise<SignupAssignment | null>;
+}
+
+/**
+ * Adaptador legado de archivo local.
+ * Se conserva únicamente para pruebas y migraciones de instalaciones anteriores.
+ * El runtime principal utiliza PostgresSignupStateStore.
+ */
+export class SignupStateStore implements SignupStateStorage {
   readonly #absolutePath: string;
   #state: SignupState = createEmptySignupState();
   #loaded = false;
@@ -35,9 +51,7 @@ export class SignupStateStore {
       const raw = await readFile(this.#absolutePath, 'utf8');
       this.#state = signupStateSchema.parse(JSON.parse(raw) as unknown);
     } catch (error) {
-      if (!isMissingFileError(error)) {
-        throw error;
-      }
+      if (!isMissingFileError(error)) throw error;
       this.#state = createEmptySignupState();
       await this.#persist();
     }
@@ -57,9 +71,7 @@ export class SignupStateStore {
 
   public getAssignmentByUser(userId: string): SignupAssignment | undefined {
     this.#assertLoaded();
-    const assignment = Object.values(this.#state.assignments).find(
-      (candidate) => candidate.userId === userId,
-    );
+    const assignment = Object.values(this.#state.assignments).find((candidate) => candidate.userId === userId);
     return assignment ? structuredClone(assignment) : undefined;
   }
 
@@ -94,11 +106,7 @@ export class SignupStateStore {
       };
       this.#state.assignments[slotKey] = assignment;
       await this.#persist();
-
-      return {
-        assignment: structuredClone(assignment),
-        previousBuildNumber,
-      };
+      return { assignment: structuredClone(assignment), previousBuildNumber };
     });
   }
 
@@ -106,9 +114,7 @@ export class SignupStateStore {
     return this.#enqueue(async () => {
       const key = String(buildNumber);
       const removed = this.#state.assignments[key];
-      if (!removed) {
-        return null;
-      }
+      if (!removed) return null;
       delete this.#state.assignments[key];
       await this.#persist();
       return structuredClone(removed);
@@ -117,12 +123,8 @@ export class SignupStateStore {
 
   public async releaseUser(userId: string): Promise<SignupAssignment | null> {
     return this.#enqueue(async () => {
-      const entry = Object.entries(this.#state.assignments).find(
-        ([, assignment]) => assignment.userId === userId,
-      );
-      if (!entry) {
-        return null;
-      }
+      const entry = Object.entries(this.#state.assignments).find(([, assignment]) => assignment.userId === userId);
+      if (!entry) return null;
       const [key, assignment] = entry;
       delete this.#state.assignments[key];
       await this.#persist();
@@ -137,24 +139,15 @@ export class SignupStateStore {
 
   async #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#mutationTail.then(operation, operation);
-    this.#mutationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
+    this.#mutationTail = result.then(() => undefined, () => undefined);
     return result;
   }
 
   #assertLoaded(): void {
-    if (!this.#loaded) {
-      throw new Error('SignupStateStore debe cargarse antes de utilizarse.');
-    }
+    if (!this.#loaded) throw new Error('SignupStateStore debe cargarse antes de utilizarse.');
   }
 }
 
 function isMissingFileError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    'code' in error &&
-    (error as NodeJS.ErrnoException).code === 'ENOENT'
-  );
+  return error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'ENOENT';
 }

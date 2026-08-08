@@ -14,6 +14,23 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/composition
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: composition
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d composition"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -30,19 +47,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Validate build catalog
+      - name: Validate legacy migration catalog
         run: pnpm run config:validate
 
-      - name: Check
+      - name: Check application
         run: pnpm run check
 
-      - name: Verify deployed build image
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-          image_url='https://raw.githubusercontent.com/nachodev-ui/composition_discord_bot/main/assets/builds/05-bear-paws-x2.png'
-          curl --fail --silent --show-error --location \
-            --output /tmp/05-bear-paws-x2.png \
-            "$image_url"
-          node scripts/validateBuildImages.mjs /tmp/05-bear-paws-x2.png
+      - name: Apply PostgreSQL migrations
+        run: pnpm run db:migrate
+
+      - name: Import legacy builds
+        run: pnpm run db:import-legacy
+
+      - name: Verify PostgreSQL schema and imported data
+        run: pnpm run db:verify

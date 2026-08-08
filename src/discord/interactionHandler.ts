@@ -10,7 +10,7 @@ import type { Logger } from '../config/logger.js';
 import type { BuildCatalog } from '../services/buildCatalog.js';
 import type { RoleAssignmentService } from '../services/roleAssignmentService.js';
 import type { SignupService } from '../services/signupService.js';
-import type { SignupStateStore } from '../services/signupStateStore.js';
+import type { SignupStateStorage } from '../services/signupStateStore.js';
 import { createBuildButtonRow, parseBuildButtonCustomId } from './buildButton.js';
 import { createBuildPresentation } from './buildPresentation.js';
 import type { SignupPanelService } from './signupPanelService.js';
@@ -20,7 +20,7 @@ interface InteractionHandlerDependencies {
   catalog: BuildCatalog;
   roleAssignmentService: RoleAssignmentService;
   signupService: SignupService;
-  stateStore: SignupStateStore;
+  stateStore: SignupStateStorage;
   panelService: SignupPanelService;
   logger: Logger;
 }
@@ -34,7 +34,7 @@ export class InteractionHandler {
   readonly #catalog: BuildCatalog;
   readonly #roleAssignmentService: RoleAssignmentService;
   readonly #signupService: SignupService;
-  readonly #stateStore: SignupStateStore;
+  readonly #stateStore: SignupStateStorage;
   readonly #panelService: SignupPanelService;
   readonly #logger: Logger;
 
@@ -53,93 +53,55 @@ export class InteractionHandler {
       await this.#handleButtonSafely(interaction);
       return;
     }
-
-    if (!interaction.isChatInputCommand()) {
-      return;
-    }
+    if (!interaction.isChatInputCommand()) return;
 
     if (interaction.guildId !== this.#environment.DISCORD_GUILD_ID || !interaction.guild) {
-      await interaction.reply({
-        content: 'Este comando solo está disponible en el servidor configurado.',
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.reply({ content: 'Este comando solo está disponible en el servidor configurado.', flags: MessageFlags.Ephemeral });
       return;
     }
 
     try {
       switch (interaction.commandName) {
-        case 'panel':
-          await this.#handlePanel(interaction);
-          break;
-        case 'build':
-          await this.#handleBuild(interaction);
-          break;
-        case 'rol':
-          await this.#handleRole(interaction);
-          break;
-        case 'sincronizar-roles':
-          await this.#handleRoleSync(interaction);
-          break;
-        default:
-          await interaction.reply({
-            content: 'Comando no reconocido.',
-            flags: MessageFlags.Ephemeral,
-          });
+        case 'panel': await this.#handlePanel(interaction); break;
+        case 'build': await this.#handleBuild(interaction); break;
+        case 'rol': await this.#handleRole(interaction); break;
+        case 'sincronizar-roles': await this.#handleRoleSync(interaction); break;
+        default: await interaction.reply({ content: 'Comando no reconocido.', flags: MessageFlags.Ephemeral });
       }
     } catch (error) {
-      this.#logger.error(
-        { err: error, command: interaction.commandName, userId: interaction.user.id },
-        'Falló un comando de Discord.',
-      );
+      this.#logger.error({ err: error, command: interaction.commandName, userId: interaction.user.id }, 'Falló un comando de Discord.');
       await this.#replyWithError(interaction, errorMessage(error));
     }
   }
 
   async #handleButtonSafely(interaction: ButtonInteraction): Promise<void> {
     const buttonData = parseBuildButtonCustomId(interaction.customId);
-    if (!buttonData) {
-      return;
-    }
+    if (!buttonData) return;
 
     if (interaction.guildId !== this.#environment.DISCORD_GUILD_ID) {
-      await interaction.reply({
-        content: 'Este botón no pertenece al servidor configurado.',
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.reply({ content: 'Este botón no pertenece al servidor configurado.', flags: MessageFlags.Ephemeral });
       return;
     }
 
     try {
       if (interaction.user.id !== buttonData.assigneeUserId) {
-        await interaction.reply({
-          content: 'Este botón pertenece al jugador que seleccionó ese puesto.',
-          flags: MessageFlags.Ephemeral,
-        });
+        await interaction.reply({ content: 'Este botón pertenece al jugador que seleccionó ese puesto.', flags: MessageFlags.Ephemeral });
         return;
       }
 
       const activeAssignment = this.#stateStore.getAssignmentByUser(interaction.user.id);
       if (!activeAssignment || activeAssignment.buildNumber !== buttonData.buildNumber) {
-        await interaction.reply({
-          content: 'Este botón quedó desactualizado porque tu puesto actual cambió.',
-          flags: MessageFlags.Ephemeral,
-        });
+        await interaction.reply({ content: 'Este botón quedó desactualizado porque tu puesto actual cambió.', flags: MessageFlags.Ephemeral });
         return;
       }
 
       const build = this.#catalog.getByNumber(buttonData.buildNumber);
       if (!build) {
-        await interaction.reply({
-          content: 'La build asociada ya no está habilitada.',
-          flags: MessageFlags.Ephemeral,
-        });
+        await interaction.reply({ content: 'La build asociada ya no está habilitada.', flags: MessageFlags.Ephemeral });
         return;
       }
 
       const presentation = createBuildPresentation(build);
-
-      // La imagen se resuelve desde una URL pública con embed.setImage().
-      // No se adjuntan archivos locales ni se usa attachment://.
       await interaction.reply({
         content: `Build obligatoria para **#${build.number} ${build.discordRole.name}**.`,
         embeds: presentation.embeds,
@@ -147,19 +109,9 @@ export class InteractionHandler {
         allowedMentions: { parse: [] },
       });
 
-      this.#logger.info(
-        {
-          userId: interaction.user.id,
-          buildNumber: build.number,
-          imageUrl: presentation.imageUrl,
-        },
-        'Build privada mostrada desde el botón Ver Build.',
-      );
+      this.#logger.info({ userId: interaction.user.id, buildNumber: build.number, imageUrl: presentation.imageUrl }, 'Build privada mostrada desde el botón Ver Build.');
     } catch (error) {
-      this.#logger.error(
-        { err: error, customId: interaction.customId, userId: interaction.user.id },
-        'Falló el botón Ver Build.',
-      );
+      this.#logger.error({ err: error, customId: interaction.customId, userId: interaction.user.id }, 'Falló el botón Ver Build.');
       await this.#replyWithError(interaction, errorMessage(error));
     }
   }
@@ -167,40 +119,25 @@ export class InteractionHandler {
   async #handlePanel(interaction: ChatInputCommandInteraction): Promise<void> {
     this.#requireManageRoles(interaction);
     const panel = await this.#panelService.ensurePanel(interaction.guild!);
-    await interaction.reply({
-      content: `Panel publicado o actualizado: ${panel.url}`,
-      flags: MessageFlags.Ephemeral,
-      allowedMentions: { parse: [] },
-    });
+    await interaction.reply({ content: `Panel publicado o actualizado: ${panel.url}`, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   }
 
   async #handleBuild(interaction: ChatInputCommandInteraction): Promise<void> {
     const number = interaction.options.getInteger('numero', true);
     const build = this.#catalog.getByNumber(number);
     if (!build) {
-      await interaction.reply({
-        content: `No existe una build habilitada con el número ${number}.`,
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.reply({ content: `No existe una build habilitada con el número ${number}.`, flags: MessageFlags.Ephemeral });
       return;
     }
-
     const presentation = createBuildPresentation(build);
-    await interaction.reply({
-      embeds: presentation.embeds,
-      flags: MessageFlags.Ephemeral,
-      allowedMentions: { parse: [] },
-    });
+    await interaction.reply({ embeds: presentation.embeds, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   }
 
   async #handleRole(interaction: ChatInputCommandInteraction): Promise<void> {
     const number = interaction.options.getInteger('numero', true);
     const build = this.#catalog.getByNumber(number);
     if (!build) {
-      await interaction.reply({
-        content: `No existe un puesto habilitado con el número ${number}.`,
-        flags: MessageFlags.Ephemeral,
-      });
+      await interaction.reply({ content: `No existe un puesto habilitado con el número ${number}.`, flags: MessageFlags.Ephemeral });
       return;
     }
 
@@ -235,10 +172,7 @@ export class InteractionHandler {
     });
   }
 
-  async #replyWithError(
-    interaction: ButtonInteraction | ChatInputCommandInteraction,
-    reason: string,
-  ): Promise<void> {
+  async #replyWithError(interaction: ButtonInteraction | ChatInputCommandInteraction, reason: string): Promise<void> {
     const content = `No se pudo completar la operación: ${reason}`;
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply({ content, components: [], embeds: [], attachments: [] });
