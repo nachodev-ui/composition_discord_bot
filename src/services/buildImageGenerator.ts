@@ -14,6 +14,12 @@ interface Cell {
   y: number;
 }
 
+interface ImageOverlay {
+  input: Buffer;
+  left: number;
+  top: number;
+}
+
 const CELLS: readonly Cell[] = [
   { key: 'offhand', label: 'Offhand', x: 20, y: 20 },
   { key: 'head', label: 'Cabeza', x: 200, y: 20 },
@@ -52,7 +58,7 @@ export class BuildImageGenerator {
       create: { width: WIDTH, height: HEIGHT, channels: 4, background: '#15171a' },
     }).png().toBuffer();
 
-    const overlays: sharp.OverlayOptions[] = [];
+    const overlays: ImageOverlay[] = [];
     for (const cell of CELLS) {
       if (cell.key === 'empty') {
         overlays.push({ input: emptyCell(cell.label), left: cell.x, top: cell.y });
