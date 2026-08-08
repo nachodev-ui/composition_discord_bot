@@ -3,6 +3,7 @@ import { Client, Events, GatewayIntentBits } from 'discord.js';
 import { loadEnvironment } from './config/env.js';
 import { createLogger } from './config/logger.js';
 import { PostgresBuildRepository } from './db/postgresBuildRepository.js';
+import { PostgresSignupStateStore } from './db/postgresSignupStateStore.js';
 import { createBuildPresentation } from './discord/buildPresentation.js';
 import { InteractionHandler } from './discord/interactionHandler.js';
 import { MessageHandler } from './discord/messageHandler.js';
@@ -14,7 +15,6 @@ import { BuildImageGenerator } from './services/buildImageGenerator.js';
 import { Cooldown } from './services/cooldown.js';
 import { RoleAssignmentService } from './services/roleAssignmentService.js';
 import { SignupService } from './services/signupService.js';
-import { SignupStateStore } from './services/signupStateStore.js';
 
 const environment = loadEnvironment();
 const logger = createLogger(environment.LOG_LEVEL);
@@ -41,7 +41,7 @@ const appServer = await startAppServer({
 const buildApi = new BuildApiClient(environment.INTERNAL_API_URL);
 const catalog = await BuildCatalog.fromApi(buildApi);
 const roleAssignmentService = new RoleAssignmentService(catalog);
-const stateStore = new SignupStateStore(environment.SIGNUP_STATE_PATH);
+const stateStore = new PostgresSignupStateStore(environment.DATABASE_URL, environment.DISCORD_GUILD_ID);
 await stateStore.load();
 const signupService = new SignupService(roleAssignmentService, stateStore);
 const cooldown = new Cooldown(environment.SELECTION_COOLDOWN_SECONDS);
@@ -56,14 +56,7 @@ const client = new Client({
 });
 
 const panelService = new SignupPanelService({ environment, catalog, stateStore, logger });
-const messageHandler = new MessageHandler({
-  environment,
-  catalog,
-  cooldown,
-  signupService,
-  panelService,
-  logger,
-});
+const messageHandler = new MessageHandler({ environment, catalog, cooldown, signupService, panelService, logger });
 const interactionHandler = new InteractionHandler({
   environment,
   catalog,
@@ -160,6 +153,7 @@ async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, 'Cerrando bot, API y conexiones.');
   client.destroy();
   await appServer.close();
+  await stateStore.close();
   await repository.close();
 }
 
