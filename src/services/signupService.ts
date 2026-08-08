@@ -2,11 +2,8 @@ import type { GuildMember } from 'discord.js';
 import type { AlbionBuild } from '../domain/build.js';
 import { SignupSlotOccupiedError } from '../domain/errors.js';
 import type { SignupAssignment } from '../domain/signupState.js';
-import type {
-  RoleAssignmentResult,
-  RoleAssignmentService,
-} from './roleAssignmentService.js';
-import type { SignupStateStore } from './signupStateStore.js';
+import type { RoleAssignmentResult, RoleAssignmentService } from './roleAssignmentService.js';
+import type { SignupStateStorage } from './signupStateStore.js';
 
 export interface SignupResult extends RoleAssignmentResult {
   assignment: SignupAssignment;
@@ -15,13 +12,10 @@ export interface SignupResult extends RoleAssignmentResult {
 
 export class SignupService {
   readonly #roleAssignmentService: RoleAssignmentService;
-  readonly #stateStore: SignupStateStore;
+  readonly #stateStore: SignupStateStorage;
   #operationTail: Promise<void> = Promise.resolve();
 
-  public constructor(
-    roleAssignmentService: RoleAssignmentService,
-    stateStore: SignupStateStore,
-  ) {
+  public constructor(roleAssignmentService: RoleAssignmentService, stateStore: SignupStateStorage) {
     this.#roleAssignmentService = roleAssignmentService;
     this.#stateStore = stateStore;
   }
@@ -39,22 +33,14 @@ export class SignupService {
         throw new SignupSlotOccupiedError(build.number, occupied.userId);
       }
 
-      const roleResult = await this.#roleAssignmentService.assignBuildRole(
-        member,
-        build,
-        options,
-      );
+      const roleResult = await this.#roleAssignmentService.assignBuildRole(member, build, options);
       const claimResult = await this.#stateStore.claimSlot({
         buildNumber: build.number,
         userId: member.id,
         roleId: roleResult.targetRole.id,
       });
 
-      return {
-        ...roleResult,
-        assignment: claimResult.assignment,
-        previousBuildNumber: claimResult.previousBuildNumber,
-      };
+      return { ...roleResult, assignment: claimResult.assignment, previousBuildNumber: claimResult.previousBuildNumber };
     });
   }
 
@@ -64,24 +50,15 @@ export class SignupService {
 
   async #discardStaleOccupant(member: GuildMember, build: AlbionBuild): Promise<void> {
     const occupied = this.#stateStore.getAssignmentByBuild(build.number);
-    if (!occupied || occupied.userId === member.id) {
-      return;
-    }
-
+    if (!occupied || occupied.userId === member.id) return;
     const occupantMember = await member.guild.members.fetch(occupied.userId).catch(() => null);
-    if (occupantMember?.roles.cache.has(occupied.roleId)) {
-      return;
-    }
-
+    if (occupantMember?.roles.cache.has(occupied.roleId)) return;
     await this.#stateStore.releaseBuild(build.number);
   }
 
   async #enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = this.#operationTail.then(operation, operation);
-    this.#operationTail = result.then(
-      () => undefined,
-      () => undefined,
-    );
+    this.#operationTail = result.then(() => undefined, () => undefined);
     return result;
   }
 }
