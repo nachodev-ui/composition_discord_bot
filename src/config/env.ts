@@ -15,7 +15,6 @@ const environmentSchema = z.object({
   INTERNAL_API_URL: z.url().default('http://127.0.0.1:3000'),
   ALBION_RENDER_BASE_URL: z.url().default('https://render.albiononline.com/v1/item'),
   LEGACY_BUILD_CONFIG_PATH: z.string().trim().min(1).default('config/builds.json'),
-  SIGNUP_STATE_PATH: z.string().trim().min(1).default('data/signup-state.json'),
   ROLE_REPLACEMENT_ENABLED: booleanFromEnvironment.default(true),
   AUTO_CREATE_MISSING_ROLES: booleanFromEnvironment.default(false),
   AUTO_PUBLISH_PANEL: booleanFromEnvironment.default(true),
